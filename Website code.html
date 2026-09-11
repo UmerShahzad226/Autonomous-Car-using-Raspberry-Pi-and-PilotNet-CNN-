@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>RC Car — Pi4</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  body {
+    font-family:'Segoe UI',sans-serif;
+    background:#0a0a0f; color:white;
+    min-height:100vh;
+    display:flex; flex-direction:column;
+    align-items:center;
+    padding:16px; gap:12px;
+    user-select:none;
+  }
+  .header { display:flex; align-items:center; justify-content:space-between; width:100%; max-width:420px; }
+  .header-left { display:flex; align-items:center; gap:10px; }
+  .header-icon { width:38px; height:38px; background:linear-gradient(135deg,#6366f1,#8b5cf6); border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:20px; }
+  .header-title { font-size:18px; font-weight:600; }
+  .header-sub   { font-size:11px; color:#64748b; }
+  .cam-btn {
+    padding:8px 14px; border-radius:12px;
+    border:1px solid #1e1e2e; background:#12121a;
+    color:#64748b; font-size:12px; font-weight:500;
+    cursor:pointer; transition:all 0.2s;
+    display:flex; align-items:center; gap:6px;
+  }
+  .cam-btn.active { background:#0f1f2e; border-color:#38bdf8; color:#38bdf8; }
+
+  /* Camera panel */
+  .camera-panel { width:100%; max-width:420px; background:#12121a; border:1px solid #1e1e2e; border-radius:14px; overflow:hidden; display:none; }
+  .camera-panel.open { display:block; }
+  .camera-panel img  { width:100%; display:block; }
+  .camera-toolbar { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-top:1px solid #1e1e2e; }
+  .rec-btn { padding:6px 14px; border-radius:10px; border:1px solid #1e1e2e; background:#12121a; color:#f87171; font-size:12px; font-weight:600; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:6px; }
+  .rec-btn.recording { background:#2e1e1e; border-color:#f87171; animation:blink 1.2s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.6} }
+  .rec-dot   { width:8px; height:8px; border-radius:50%; background:#f87171; }
+  .rec-timer { font-size:12px; color:#64748b; font-family:monospace; }
+
+  /* Mode bar */
+  .mode-bar { display:flex; gap:8px; width:100%; max-width:420px; }
+  .mode-btn {
+    flex:1; padding:10px; border-radius:12px;
+    border:1px solid #1e1e2e; background:#12121a;
+    color:#64748b; font-size:12px; font-weight:500;
+    cursor:pointer; transition:all 0.2s;
+    display:flex; align-items:center; justify-content:center; gap:6px;
+  }
+  .mode-btn.collect-on  { background:#0f2e1e; border-color:#4ade80; color:#4ade80; }
+  .mode-btn.auto-on     { background:#1e0f2e; border-color:#a78bfa; color:#a78bfa; animation:blink 1.5s infinite; }
+
+  /* Status pills */
+  .status-bar { display:flex; gap:8px; width:100%; max-width:420px; }
+  .pill { flex:1; background:#12121a; border:1px solid #1e1e2e; border-radius:10px; padding:8px 12px; font-size:11px; color:#64748b; display:flex; flex-direction:column; gap:2px; }
+  .pill-val { font-size:14px; font-weight:600; color:white; }
+  .pill-val.fwd { color:#6ee7b7; }
+  .pill-val.rev { color:#f87171; }
+  .pill-val.lft { color:#60a5fa; }
+  .pill-val.rgt { color:#f87171; }
+  .pill-val.auto { color:#a78bfa; }
+
+  /* D-pad */
+  .dpad-wrap { display:flex; flex-direction:column; align-items:center; gap:8px; width:100%; max-width:420px; }
+  .dpad-row  { display:flex; gap:8px; justify-content:center; }
+  .btn { width:96px; height:96px; border-radius:18px; border:1px solid #1e1e2e; background:#12121a; color:white; font-size:24px; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:3px; transition:background 0.1s, transform 0.1s, border-color 0.1s; touch-action:none; }
+  .btn-label { font-size:9px; font-weight:500; color:#475569; letter-spacing:0.5px; text-transform:uppercase; }
+  .btn.fwd.pressed { background:#1e3a2e; border-color:#4ade80; color:#4ade80; transform:scale(0.95); }
+  .btn.bwd.pressed { background:#2e1e1e; border-color:#f87171; color:#f87171; transform:scale(0.95); }
+  .btn.lft.pressed { background:#1e2e3a; border-color:#60a5fa; color:#60a5fa; transform:scale(0.95); }
+  .btn.rgt.pressed { background:#1e2e3a; border-color:#60a5fa; color:#60a5fa; transform:scale(0.95); }
+  .btn.stp.pressed { background:#2e2e1e; border-color:#fbbf24; color:#fbbf24; transform:scale(0.95); }
+  .btn.fwd.pressed .btn-label { color:#4ade80; }
+  .btn.bwd.pressed .btn-label { color:#f87171; }
+  .btn.lft.pressed .btn-label { color:#60a5fa; }
+  .btn.rgt.pressed .btn-label { color:#60a5fa; }
+  .btn.stp.pressed .btn-label { color:#fbbf24; }
+  .btn.disabled { opacity:0.3; pointer-events:none; }
+
+  /* Bottom bar */
+  .bottom-bar { display:flex; gap:10px; width:100%; max-width:420px; align-items:stretch; }
+  .led-btn { width:56px; border-radius:14px; border:1px solid #1e1e2e; background:#12121a; color:#64748b; font-size:22px; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:2px; transition:all 0.2s; flex-shrink:0; }
+  .led-btn span { font-size:9px; font-weight:500; letter-spacing:0.5px; text-transform:uppercase; }
+  .led-btn.on { background:#1a1a00; border-color:#facc15; color:#facc15; box-shadow:0 0 12px rgba(250,204,21,0.3); }
+  .speed-wrap { flex:1; background:#12121a; border:1px solid #1e1e2e; border-radius:14px; padding:12px 16px; }
+  .speed-header { display:flex; justify-content:space-between; align-items:center; font-size:12px; color:#64748b; margin-bottom:10px; }
+  .speed-val { font-weight:600; color:white; font-size:14px; }
+  .speed-track { position:relative; height:6px; background:#1e1e2e; border-radius:3px; }
+  .speed-fill  { height:100%; border-radius:3px; background:linear-gradient(90deg,#6366f1,#8b5cf6); transition:width 0.1s; pointer-events:none; }
+  input[type=range] { position:absolute; top:-8px; left:0; width:100%; height:22px; opacity:0; cursor:pointer; margin:0; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <div class="header-icon">🚗</div>
+    <div>
+      <div class="header-title">RC Car — Pi4</div>
+      <div class="header-sub" id="header-sub">Hold to drive</div>
+    </div>
+  </div>
+  <button class="cam-btn" id="cam-btn" onclick="toggleCamera()">
+    📷 <span id="cam-label">Camera</span>
+  </button>
+</div>
+
+<!-- Camera Panel -->
+<div class="camera-panel" id="camera-panel">
+  <img id="cam-feed" src="" alt="Camera feed">
+  <div class="camera-toolbar">
+    <button class="rec-btn" id="rec-btn" onclick="toggleRecord()">
+      <div class="rec-dot"></div>
+      <span id="rec-label">Record Video</span>
+    </button>
+    <span class="rec-timer" id="rec-timer">00:00</span>
+  </div>
+</div>
+
+<div class="mode-bar">
+  <button class="mode-btn" id="collect-btn" onclick="toggleCollect()">
+    💾 <span id="collect-label">Start Data Collection</span>
+  </button>
+  <button class="mode-btn" id="auto-btn" onclick="toggleAuto()">
+    🤖 <span id="auto-label">Autonomous</span>
+  </button>
+  <a href="/download_dataset" class="mode-btn" style="text-decoration:none;">
+    📥 <span>Download</span>
+  </a>
+</div>
+
+<!-- Status pills -->
+<div class="status-bar">
+  <div class="pill"><span>Motor</span><span class="pill-val" id="pill-motor">Stopped</span></div>
+  <div class="pill"><span>Steering</span><span class="pill-val" id="pill-steer">Centre</span></div>
+  <div class="pill"><span>Frames</span><span class="pill-val" id="pill-frames">0</span></div>
+</div>
+
+<!-- D-pad -->
+<div class="dpad-wrap" id="dpad">
+  <div class="dpad-row">
+    <button class="btn fwd" id="btn-fwd"
+      ontouchstart="hold('forward',this)"  ontouchend="release('stopmotor',this)"
+      onmousedown="hold('forward',this)"   onmouseup="release('stopmotor',this)" onmouseleave="release('stopmotor',this)">
+      ↑<span class="btn-label">Forward</span>
+    </button>
+  </div>
+  <div class="dpad-row">
+    <button class="btn lft" id="btn-lft"
+      ontouchstart="hold('left',this)"  ontouchend="release('centre',this)"
+      onmousedown="hold('left',this)"   onmouseup="release('centre',this)" onmouseleave="release('centre',this)">
+      ←<span class="btn-label">Left</span>
+    </button>
+    <button class="btn stp" id="btn-stp" onclick="tap('stop')">
+      ■<span class="btn-label">Stop</span>
+    </button>
+    <button class="btn rgt" id="btn-rgt"
+      ontouchstart="hold('right',this)"  ontouchend="release('centre',this)"
+      onmousedown="hold('right',this)"   onmouseup="release('centre',this)" onmouseleave="release('centre',this)">
+      →<span class="btn-label">Right</span>
+    </button>
+  </div>
+  <div class="dpad-row">
+    <button class="btn bwd" id="btn-bwd"
+      ontouchstart="hold('backward',this)"  ontouchend="release('stopmotor',this)"
+      onmousedown="hold('backward',this)"   onmouseup="release('stopmotor',this)" onmouseleave="release('stopmotor',this)">
+      ↓<span class="btn-label">Reverse</span>
+    </button>
+  </div>
+</div>
+
+<!-- Bottom: LED + Speed -->
+<div class="bottom-bar">
+  <button class="led-btn" id="led-btn" onclick="toggleLED()">
+    💡<span id="led-label">OFF</span>
+  </button>
+  <div class="speed-wrap">
+    <div class="speed-header">
+      <span>Motor Speed</span>
+      <span class="speed-val" id="speed-display">70%</span>
+    </div>
+    <div class="speed-track">
+      <div class="speed-fill" id="speed-fill" style="width:70%"></div>
+      <input type="range" min="0" max="100" value="70" id="speed-sl" oninput="updateSpeed(this.value)">
+    </div>
+  </div>
+</div>
+
+<script>
+var motorInterval   = null;
+var steerInterval   = null;
+var cameraOpen      = false;
+var recordingActive = false;
+var collectingActive = false;
+var autoActive      = false;
+var recSeconds      = 0;
+var recTimer        = null;
+var statusTimer     = null;
+
+window.onload = function() {
+  updateSpeed(70);
+  // Poll server status every second to update frame count
+  statusTimer = setInterval(pollStatus, 1000);
+};
+
+function pollStatus() {
+  fetch('/status')
+    .then(r => r.json())
+    .then(function(s) {
+      document.getElementById('pill-frames').textContent = s.frames || 0;
+    }).catch(function(){});
+}
+
+function toggleCamera() {
+  cameraOpen = !cameraOpen;
+  var panel = document.getElementById('camera-panel');
+  var btn   = document.getElementById('cam-btn');
+  var lbl   = document.getElementById('cam-label');
+  var feed  = document.getElementById('cam-feed');
+  if (cameraOpen) {
+    feed.src = '/video_feed';
+    panel.classList.add('open');
+    btn.classList.add('active');
+    lbl.textContent = 'Close';
+  } else {
+    feed.src = '';
+    panel.classList.remove('open');
+    btn.classList.remove('active');
+    lbl.textContent = 'Camera';
+    if (recordingActive) toggleRecord();
+  }
+}
+
+function toggleRecord() {
+  var btn = document.getElementById('rec-btn');
+  var lbl = document.getElementById('rec-label');
+  if (!recordingActive) {
+    send('record_start');
+    recordingActive = true;
+    btn.classList.add('recording');
+    lbl.textContent = 'Stop Recording';
+    recSeconds = 0;
+    recTimer = setInterval(function() {
+      recSeconds++;
+      var m = String(Math.floor(recSeconds/60)).padStart(2,'0');
+      var s = String(recSeconds%60).padStart(2,'0');
+      document.getElementById('rec-timer').textContent = m+':'+s;
+    }, 1000);
+  } else {
+    send('record_stop');
+    recordingActive = false;
+    btn.classList.remove('recording');
+    lbl.textContent = 'Record Video';
+    clearInterval(recTimer);
+    document.getElementById('rec-timer').textContent = '00:00';
+  }
+}
+
+function toggleCollect() {
+  var btn = document.getElementById('collect-btn');
+  var lbl = document.getElementById('collect-label');
+  if (!collectingActive) {
+    send('collect_start');
+    collectingActive = true;
+    btn.classList.add('collect-on');
+    lbl.textContent = 'Stop Collection';
+    document.getElementById('header-sub').textContent = '● Saving frames...';
+  } else {
+    send('collect_stop');
+    collectingActive = false;
+    btn.classList.remove('collect-on');
+    lbl.textContent = 'Start Data Collection';
+    document.getElementById('header-sub').textContent = 'Hold to drive';
+  }
+}
+
+function toggleAuto() {
+  var btn = document.getElementById('auto-btn');
+  var lbl = document.getElementById('auto-label');
+  if (!autoActive) {
+    fetch('/cmd?action=auto_start')
+      .then(r => r.json())
+      .then(function(res) {
+        if (res.status === 'error') {
+          alert('Model not found!\nTrain model first and copy to:\n~/RC_Car/model/pilotnet.h5');
+          return;
+        }
+        autoActive = true;
+        btn.classList.add('auto-on');
+        lbl.textContent = 'Stop Autonomous';
+        // Disable manual controls
+        document.querySelectorAll('.btn').forEach(b => b.classList.add('disabled'));
+        document.getElementById('pill-motor').textContent = 'AUTO';
+        document.getElementById('pill-motor').className   = 'pill-val auto';
+        document.getElementById('header-sub').textContent = '🤖 Autonomous driving...';
+      });
+  } else {
+    send('auto_stop');
+    autoActive = false;
+    btn.classList.remove('auto-on');
+    lbl.textContent = 'Autonomous';
+    document.querySelectorAll('.btn').forEach(b => b.classList.remove('disabled'));
+    document.getElementById('pill-motor').textContent = 'Stopped';
+    document.getElementById('pill-motor').className   = 'pill-val';
+    document.getElementById('header-sub').textContent = 'Hold to drive';
+  }
+}
+
+function updateSpeed(v) {
+  document.getElementById('speed-display').textContent = v + '%';
+  document.getElementById('speed-fill').style.width    = v + '%';
+  send('speed_' + v);
+}
+
+function toggleLED() {
+  var btn = document.getElementById('led-btn');
+  var lbl = document.getElementById('led-label');
+  if (btn.classList.contains('on')) {
+    btn.classList.remove('on'); lbl.textContent = 'OFF';
+  } else {
+    btn.classList.add('on'); lbl.textContent = 'ON';
+  }
+  send('led');
+}
+
+function hold(cmd, el) {
+  if (autoActive) return;
+  el.classList.add('pressed');
+  send(cmd);
+  if (cmd==='forward'||cmd==='backward') {
+    clearInterval(motorInterval);
+    motorInterval = setInterval(function(){ send(cmd); }, 150);
+  }
+  if (cmd==='left'||cmd==='right') {
+    clearInterval(steerInterval);
+    steerInterval = setInterval(function(){ send(cmd); }, 150);
+  }
+  updateStatus(cmd);
+}
+
+function release(cmd, el) {
+  if (autoActive) return;
+  el.classList.remove('pressed');
+  if (cmd==='stopmotor') clearInterval(motorInterval);
+  if (cmd==='centre')    clearInterval(steerInterval);
+  send(cmd);
+  updateStatus(cmd);
+}
+
+function tap(cmd) {
+  clearInterval(motorInterval);
+  clearInterval(steerInterval);
+  document.querySelectorAll('.btn').forEach(b=>b.classList.remove('pressed'));
+  send(cmd);
+  updateStatus(cmd);
+}
+
+function send(cmd) {
+  fetch('/cmd?action='+cmd).catch(function(){});
+}
+
+function updateStatus(cmd) {
+  var motor = document.getElementById('pill-motor');
+  var steer = document.getElementById('pill-steer');
+  if      (cmd==='forward')                 { motor.textContent='Forward'; motor.className='pill-val fwd'; }
+  else if (cmd==='backward')                { motor.textContent='Reverse'; motor.className='pill-val rev'; }
+  else if (cmd==='stopmotor'||cmd==='stop') { motor.textContent='Stopped'; motor.className='pill-val';     }
+  if      (cmd==='left')                    { steer.textContent='← Left';  steer.className='pill-val lft'; }
+  else if (cmd==='right')                   { steer.textContent='Right →'; steer.className='pill-val rgt'; }
+  else if (cmd==='centre'||cmd==='stop')    { steer.textContent='Centre';  steer.className='pill-val';     }
+}
+
+var keysDown = {};
+document.addEventListener('keydown', function(e) {
+  if (keysDown[e.key]) return; keysDown[e.key]=true;
+  if (e.key==='ArrowUp')    hold('forward',  document.getElementById('btn-fwd'));
+  if (e.key==='ArrowDown')  hold('backward', document.getElementById('btn-bwd'));
+  if (e.key==='ArrowLeft')  hold('left',     document.getElementById('btn-lft'));
+  if (e.key==='ArrowRight') hold('right',    document.getElementById('btn-rgt'));
+  if (e.key===' ')          tap('stop');
+  if (e.key==='c'||e.key==='C') toggleCamera();
+  if (e.key==='l'||e.key==='L') toggleLED();
+  if (e.key==='d'||e.key==='D') toggleCollect();
+});
+document.addEventListener('keyup', function(e) {
+  keysDown[e.key]=false;
+  if (e.key==='ArrowUp'||e.key==='ArrowDown')    release('stopmotor', document.getElementById('btn-fwd'));
+  if (e.key==='ArrowLeft'||e.key==='ArrowRight') release('centre',    document.getElementById('btn-lft'));
+});
+</script>
+</body>
+</html>
